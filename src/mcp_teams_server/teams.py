@@ -176,6 +176,13 @@ class TeamsClient:
                 callback=start_thread_callback,
             )
 
+            # Validate that thread was created successfully
+            if not result.thread_id:
+                raise RuntimeError(
+                    "Failed to create thread: send_activity returned None or invalid response. "
+                    "This may indicate an authentication error or insufficient permissions."
+                )
+
             return result
         except Exception as e:
             LOGGER.error(f"Error creating thread: {str(e)}")
@@ -257,6 +264,13 @@ class TeamsClient:
                 callback=update_thread_callback,
             )
 
+            # Validate that message was created successfully
+            if not result.message_id:
+                raise RuntimeError(
+                    f"Failed to update thread {thread_id}: send_to_conversation returned None or invalid response. "
+                    "This may indicate an authentication error, insufficient permissions, or invalid thread ID."
+                )
+
             return result
         except Exception as e:
             LOGGER.error(f"Error updating thread: {str(e)}")
@@ -280,6 +294,12 @@ class TeamsClient:
                 reference=self._create_conversation_reference(),
                 callback=get_member_by_id_callback,
             )
+            # Validate that member was retrieved successfully
+            if not result.name or not result.email:
+                raise RuntimeError(
+                    f"Failed to get member by ID {member_id}: member not found or invalid response. "
+                    "This may indicate an authentication error, insufficient permissions, or invalid member ID."
+                )
             return result
         except Exception as e:
             LOGGER.error(f"Error updating thread: {str(e)}")
