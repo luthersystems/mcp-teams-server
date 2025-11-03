@@ -117,8 +117,13 @@ async def start_thread(
     ),
 ) -> TeamsThread:
     await ctx.debug(f"start_thread with title={title} and content={content}")
-    client = _get_teams_client(ctx)
-    return await client.start_thread(title, content, member_name)
+    try:
+        client = _get_teams_client(ctx)
+        return await client.start_thread(title, content, member_name)
+    except Exception as e:
+        # Re-raise exception so FastMCP can properly set isError: true
+        LOGGER.error(f"Error in start_thread: {str(e)}")
+        raise
 
 
 @mcp.tool(
@@ -135,8 +140,13 @@ async def update_thread(
     ),
 ) -> TeamsMessage:
     await ctx.debug(f"update_thread with thread_id={thread_id} and content={content}")
-    client = _get_teams_client(ctx)
-    return await client.update_thread(thread_id, content, member_name)
+    try:
+        client = _get_teams_client(ctx)
+        return await client.update_thread(thread_id, content, member_name)
+    except Exception as e:
+        # Re-raise exception so FastMCP can properly set isError: true
+        LOGGER.error(f"Error in update_thread: {str(e)}")
+        raise
 
 
 @mcp.tool(name="read_thread", description="Read replies in a thread")
@@ -147,8 +157,13 @@ async def read_thread(
     ),
 ) -> PagedTeamsMessages:
     await ctx.debug(f"read_thread with thread_id={thread_id}")
-    client = _get_teams_client(ctx)
-    return await client.read_thread_replies(thread_id, 50)
+    try:
+        client = _get_teams_client(ctx)
+        return await client.read_thread_replies(thread_id, 50)
+    except Exception as e:
+        # Re-raise exception so FastMCP can properly set isError: true
+        LOGGER.error(f"Error in read_thread: {str(e)}")
+        raise
 
 
 @mcp.tool(name="list_threads", description="List threads in channel with pagination")
@@ -162,8 +177,13 @@ async def list_threads(
     ),
 ) -> PagedTeamsMessages:
     await ctx.debug(f"list_threads with cursor={cursor} and limit={limit}")
-    client = _get_teams_client(ctx)
-    return await client.read_threads(limit, cursor)
+    try:
+        client = _get_teams_client(ctx)
+        return await client.read_threads(limit, cursor)
+    except Exception as e:
+        # Re-raise exception so FastMCP can properly set isError: true
+        LOGGER.error(f"Error in list_threads: {str(e)}")
+        raise
 
 
 @mcp.tool(name="get_member_by_name", description="Get a member by its name")
@@ -171,15 +191,25 @@ async def get_member_by_name(
     ctx: Context, name: str = Field(description="Member name")
 ):
     await ctx.debug(f"get_member_by_name with name={name}")
-    client = _get_teams_client(ctx)
-    return await client.get_member_by_name(name)
+    try:
+        client = _get_teams_client(ctx)
+        return await client.get_member_by_name(name)
+    except Exception as e:
+        # Re-raise exception so FastMCP can properly set isError: true
+        LOGGER.error(f"Error in get_member_by_name: {str(e)}")
+        raise
 
 
 @mcp.tool(name="list_members", description="List all members in the team")
 async def list_members(ctx: Context) -> list[TeamsMember]:
     await ctx.debug("list_members")
-    client = _get_teams_client(ctx)
-    return await client.list_members()
+    try:
+        client = _get_teams_client(ctx)
+        return await client.list_members()
+    except Exception as e:
+        # Re-raise exception so FastMCP can properly set isError: true
+        LOGGER.error(f"Error in list_members: {str(e)}")
+        raise
 
 
 def _check_required_environment():
