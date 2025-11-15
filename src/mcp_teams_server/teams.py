@@ -135,46 +135,67 @@ class TeamsClient:
             await self._initialize()
 
             result = TeamsThread(title=title, content=content, thread_id="")
+            callback_exception = None
 
             async def start_thread_callback(context: TurnContext):
-                mention_member = None
-                if member_name is not None:
-                    members = await TeamsInfo.get_team_members(context, self.team_id)
-                    for member in members:
-                        if member.name == member_name:
-                            mention_member = member
+                nonlocal callback_exception
+                try:
+                    mention_member = None
+                    if member_name is not None:
+                        members = await TeamsInfo.get_team_members(context, self.team_id)
+                        for member in members:
+                            if member.name == member_name:
+                                mention_member = member
 
-                mentions = []
-                if mention_member is not None:
-                    result.content = (
-                        f"# **{title}**\n<at>{mention_member.name}</at> {content}"
-                    )
-                    mention = Mention(
-                        text=f"<at>{mention_member.name}</at>",
-                        type="mention",
-                        mentioned=ChannelAccount(
-                            id=mention_member.id, name=mention_member.name
-                        ),
-                    )
-                    mentions.append(mention)
+                    mentions = []
+                    if mention_member is not None:
+                        result.content = (
+                            f"# **{title}**\n<at>{mention_member.name}</at> {content}"
+                        )
+                        mention = Mention(
+                            text=f"<at>{mention_member.name}</at>",
+                            type="mention",
+                            mentioned=ChannelAccount(
+                                id=mention_member.id, name=mention_member.name
+                            ),
+                        )
+                        mentions.append(mention)
 
-                response = await context.send_activity(
-                    activity_or_text=Activity(
-                        type=ActivityTypes.message,
-                        topic_name=title,
-                        text=result.content,
-                        text_format=TextFormatTypes.markdown,
-                        entities=mentions,
+                    response = await context.send_activity(
+                        activity_or_text=Activity(
+                            type=ActivityTypes.message,
+                            topic_name=title,
+                            text=result.content,
+                            text_format=TextFormatTypes.markdown,
+                            entities=mentions,
+                        )
                     )
-                )
-                if response is not None:
-                    result.thread_id = response.id
+                    if response is not None:
+                        result.thread_id = response.id
+                except Exception as e:
+                    # Capture exception from inside callback to propagate it
+                    callback_exception = e
+                    LOGGER.error(f"Error in start_thread_callback: {str(e)}")
+                    raise
 
             await self.adapter.continue_conversation(
                 bot_app_id=self.teams_app_id,
                 reference=self._create_conversation_reference(),
                 callback=start_thread_callback,
             )
+
+            # Check if exception occurred inside callback
+            if callback_exception is not None:
+                raise RuntimeError(
+                    f"Failed to create thread: {str(callback_exception)}"
+                ) from callback_exception
+
+            # Validate that thread was created successfully
+            if not result.thread_id:
+                raise RuntimeError(
+                    "Failed to create thread: send_activity returned None or invalid response. "
+                    "This may indicate an authentication error or insufficient permissions."
+                )
 
             return result
         except Exception as e:
@@ -204,58 +225,79 @@ class TeamsClient:
             await self._initialize()
 
             result = TeamsMessage(thread_id=thread_id, content=content, message_id="")
+            callback_exception = None
 
             async def update_thread_callback(context: TurnContext):
-                mention_member = None
-                if member_name is not None:
-                    members = await TeamsInfo.get_team_members(context, self.team_id)
-                    for member in members:
-                        if member.name == member_name:
-                            mention_member = member
+                nonlocal callback_exception
+                try:
+                    mention_member = None
+                    if member_name is not None:
+                        members = await TeamsInfo.get_team_members(context, self.team_id)
+                        for member in members:
+                            if member.name == member_name:
+                                mention_member = member
 
-                mentions = []
-                if mention_member is not None:
-                    result.content = f"<at>{mention_member.name}</at> {content}"
-                    mention = Mention(
-                        text=f"<at>{mention_member.name}</at>",
-                        type="mention",
-                        mentioned=ChannelAccount(
-                            id=mention_member.id, name=mention_member.name
+                    mentions = []
+                    if mention_member is not None:
+                        result.content = f"<at>{mention_member.name}</at> {content}"
+                        mention = Mention(
+                            text=f"<at>{mention_member.name}</at>",
+                            type="mention",
+                            mentioned=ChannelAccount(
+                                id=mention_member.id, name=mention_member.name
+                            ),
+                        )
+                        mentions.append(mention)
+
+                    reply = Activity(
+                        type=ActivityTypes.message,
+                        text=result.content,
+                        from_property=TeamsChannelAccount(
+                            id=self.teams_app_id, name="MCP Bot"
                         ),
+                        conversation=ConversationAccount(id=thread_id),
+                        entities=mentions,
                     )
-                    mentions.append(mention)
+                    #
+                    # Hack to get the connector client and reply to an existing activity
+                    #
+                    conversations = TeamsClient._get_conversation_operations(context)
+                    #
+                    # Hack to reply to conversation https://github.com/microsoft/botframework-sdk/issues/6626
+                    #
+                    conversation_id = (
+                        f"{context.activity.conversation.id};messageid={thread_id}"  # pyright: ignore
+                    )
+                    response = await conversations.send_to_conversation(
+                        conversation_id=conversation_id, activity=reply
+                    )
 
-                reply = Activity(
-                    type=ActivityTypes.message,
-                    text=result.content,
-                    from_property=TeamsChannelAccount(
-                        id=self.teams_app_id, name="MCP Bot"
-                    ),
-                    conversation=ConversationAccount(id=thread_id),
-                    entities=mentions,
-                )
-                #
-                # Hack to get the connector client and reply to an existing activity
-                #
-                conversations = TeamsClient._get_conversation_operations(context)
-                #
-                # Hack to reply to conversation https://github.com/microsoft/botframework-sdk/issues/6626
-                #
-                conversation_id = (
-                    f"{context.activity.conversation.id};messageid={thread_id}"  # pyright: ignore
-                )
-                response = await conversations.send_to_conversation(
-                    conversation_id=conversation_id, activity=reply
-                )
-
-                if response is not None:
-                    result.message_id = response.id  # pyright: ignore
+                    if response is not None:
+                        result.message_id = response.id  # pyright: ignore
+                except Exception as e:
+                    # Capture exception from inside callback to propagate it
+                    callback_exception = e
+                    LOGGER.error(f"Error in update_thread_callback: {str(e)}")
+                    raise
 
             await self.adapter.continue_conversation(
                 bot_app_id=self.teams_app_id,
                 reference=self._create_conversation_reference(),
                 callback=update_thread_callback,
             )
+
+            # Check if exception occurred inside callback
+            if callback_exception is not None:
+                raise RuntimeError(
+                    f"Failed to update thread {thread_id}: {str(callback_exception)}"
+                ) from callback_exception
+
+            # Validate that message was created successfully
+            if not result.message_id:
+                raise RuntimeError(
+                    f"Failed to update thread {thread_id}: send_to_conversation returned None or invalid response. "
+                    "This may indicate an authentication error, insufficient permissions, or invalid thread ID."
+                )
 
             return result
         except Exception as e:
@@ -267,22 +309,43 @@ class TeamsClient:
             await self._initialize()
 
             result = TeamsMember(name="", email="")
+            callback_exception = None
 
             async def get_member_by_id_callback(context: TurnContext):
-                member = await TeamsInfo.get_team_member(
-                    context, self.team_id, member_id
-                )
-                result.name = member.name
-                result.email = member.email
+                nonlocal callback_exception
+                try:
+                    member = await TeamsInfo.get_team_member(
+                        context, self.team_id, member_id
+                    )
+                    result.name = member.name
+                    result.email = member.email
+                except Exception as e:
+                    # Capture exception from inside callback to propagate it
+                    callback_exception = e
+                    LOGGER.error(f"Error in get_member_by_id_callback: {str(e)}")
+                    raise
 
             await self.adapter.continue_conversation(
                 bot_app_id=self.teams_app_id,
                 reference=self._create_conversation_reference(),
                 callback=get_member_by_id_callback,
             )
+
+            # Check if exception occurred inside callback
+            if callback_exception is not None:
+                raise RuntimeError(
+                    f"Failed to get member by ID {member_id}: {str(callback_exception)}"
+                ) from callback_exception
+
+            # Validate that member was retrieved successfully
+            if not result.name or not result.email:
+                raise RuntimeError(
+                    f"Failed to get member by ID {member_id}: member not found or invalid response. "
+                    "This may indicate an authentication error, insufficient permissions, or invalid member ID."
+                )
             return result
         except Exception as e:
-            LOGGER.error(f"Error updating thread: {str(e)}")
+            LOGGER.error(f"Error getting member by ID: {str(e)}")
             raise
 
     async def read_threads(
@@ -419,17 +482,32 @@ class TeamsClient:
         try:
             await self._initialize()
             result = []
+            callback_exception = None
 
             async def list_members_callback(context: TurnContext):
-                members = await TeamsInfo.get_team_members(context, self.team_id)
-                for member in members:
-                    result.append(TeamsMember(name=member.name, email=member.email))
+                nonlocal callback_exception
+                try:
+                    members = await TeamsInfo.get_team_members(context, self.team_id)
+                    for member in members:
+                        result.append(TeamsMember(name=member.name, email=member.email))
+                except Exception as e:
+                    # Capture exception from inside callback to propagate it
+                    callback_exception = e
+                    LOGGER.error(f"Error in list_members_callback: {str(e)}")
+                    raise
 
             await self.adapter.continue_conversation(
                 bot_app_id=self.teams_app_id,
                 reference=self._create_conversation_reference(),
                 callback=list_members_callback,
             )
+
+            # Check if exception occurred inside callback
+            if callback_exception is not None:
+                raise RuntimeError(
+                    f"Failed to list members: {str(callback_exception)}"
+                ) from callback_exception
+
             return result
         except Exception as e:
             LOGGER.error(f"Error listing members: {str(e)}")
